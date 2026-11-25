@@ -141,7 +141,8 @@ export function ConversationScreen() {
       </View>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} bounces={false}>
         <View style={[styles.scene, { minHeight: 490 * Math.max(1, fontScale) + bottom }]}>
-          <SceneArtwork friend={friend} pose={practice ? 'listen' : turn.pose} />
+          <SceneArtwork friend={friend} pose={practice ? 'listen' : turn.pose}
+            attentive={practice || speaking} paused={panel !== null} />
           <View style={styles.bubbleArea}>
             <View style={styles.bubbleTail} />
             <View style={styles.bubble}>

@@ -1,26 +1,136 @@
+import { BlurMask, Canvas, Group, ImageShader, Oval, Rect, Shader, useImage } from '@shopify/react-native-skia';
 import { Image } from 'expo-image';
-import { useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { AccessibilityInfo, AppState, PixelRatio, StyleSheet, View } from 'react-native';
+import {
+  cancelAnimation, ReduceMotion, useDerivedValue, useFrameCallback, useSharedValue, withTiming, type FrameInfo,
+} from 'react-native-reanimated';
 
+import { characterShader, crop, frame, rigs } from './characterMotion';
 import { friends, type FriendId, type Pose } from './conversation';
 
-const frames: Record<Pose, [number, number]> = {
-  listen: [0, 0], wave: [1, 0], apple: [0, 1], relax: [1, 1],
+type SceneProps = { friend: FriendId; pose: Pose; attentive: boolean; paused: boolean };
+
+function useMotionEnabled() {
+  const [reduced, setReduced] = useState(true);
+  const [active, setActive] = useState(AppState.currentState === 'active');
+  useEffect(() => {
+    let readInitialSetting = true;
+    const motion = AccessibilityInfo.addEventListener('reduceMotionChanged', value => {
+      readInitialSetting = false;
+      setReduced(value);
+    });
+    void AccessibilityInfo.isReduceMotionEnabled().then(value => {
+      if (readInitialSetting) setReduced(value);
+    });
+    const state = AppState.addEventListener('change', value => setActive(value === 'active'));
+    return () => {
+      readInitialSetting = false;
+      motion.remove();
+      state.remove();
+    };
+  }, []);
+  return active && !reduced;
+}
+
+type CharacterProps = Omit<SceneProps, 'paused'> & {
+  moving: boolean; scale: number; left: number; top: number;
 };
 
-export function SceneArtwork({ friend, pose }: { friend: FriendId; pose: Pose }) {
-  const [{ width, height }, setSize] = useState({ width: 0, height: 0 });
-  const [column, row] = frames[pose];
-  const frameWidth = Math.max(width, height * 2 / 3);
-  // 웹 원본은 2×2 장면 시트다. 선택한 칸만 화면 가운데에 보이게 한다.
+function Character({ friend, pose, attentive, moving, scale, left, top }: CharacterProps) {
+  const image = useImage(friends[friend].poses);
+  const rig = rigs[friend];
+  const tick = useSharedValue(0);
+  const attention = useSharedValue(0);
+  // 기기의 주사율과 관계없이 손그림은 초당 24장만 갱신한다.
+  const clock = useFrameCallback(useCallback(({ timeSinceFirstFrame }: FrameInfo) => {
+    'worklet';
+    tick.set(Math.floor(timeSinceFirstFrame * 24 / 1000));
+  }, [tick]), false);
+  useEffect(() => {
+    clock.setActive(moving);
+    if (!moving) tick.set(0);
+  }, [clock, moving, tick]);
+
+  useEffect(() => {
+    attention.value = moving
+      ? withTiming(attentive ? 1 : 0, { duration: 320, reduceMotion: ReduceMotion.Never })
+      : 0;
+    return () => cancelAnimation(attention);
+  }, [attention, attentive, moving]);
+
+  const uniforms = useDerivedValue(() => {
+    const elapsedMs = tick.get() * 1000 / 24;
+    const t = 2 * Math.PI * (elapsedMs % rig.cycleMs) / rig.cycleMs;
+    const focus = attention.value;
+    const breath = Math.sin(3 * t);
+    const glance = 0.7 * Math.sin(2 * t) + 0.3 * Math.sin(5 * t);
+    const tailSwing = rig.tail ? Math.sin(rig.tail.beats * t) * (0.78 + 0.22 * Math.cos(t) + 0.4 * focus) : 0;
+    const hand = pose === 'apple' ? rig.appleHand : rig.waveHand;
+    let handX = 0;
+    let handY = 0;
+    if (pose === 'wave') {
+      // 인사할 때는 손을 몇 번 흔든 뒤 잠깐 쉰다.
+      handX = 8 * Math.sin(12 * t) * Math.max(0, Math.cos(2 * t));
+      handY = 2 * Math.sin(4 * t);
+    } else if (pose === 'apple') {
+      handX = 2 * Math.sin(2 * t);
+      handY = -4 * breath;
+    }
+    return {
+      tile: frame[pose], origin: [crop.x, crop.y], feet: rig.feet, neck: rig.neck,
+      headRadius: rig.headRadius, lean: rig.sway * glance,
+      rise: rig.breath * breath, angle: rig.tilt * (glance + 0.65 * focus),
+      nod: rig.nod * Math.sin(4 * t) + 2 * focus,
+      tailTip: rig.tail?.tip ?? [0, 0],
+      tailMove: [(rig.tail?.swing[0] ?? 0) * tailSwing, (rig.tail?.swing[1] ?? 0) * tailSwing],
+      hand, handMove: [handX, handY],
+    };
+  });
+
+  // 원화 해상도로 그린 뒤 확대해 고밀도 화면에서도 매 프레임 같은 픽셀을 여러 번 계산하지 않는다.
+  const magnification = Math.max(1, scale * PixelRatio.get());
+  const drawingScale = scale / magnification;
   return (
-    <View accessible accessibilityRole="image" accessibilityLabel={friends[friend].home + '의 ' + friends[friend].name}
+    <Canvas colorSpace="srgb" style={{
+      position: 'absolute', left, top, width: crop.width * drawingScale, height: crop.height * drawingScale,
+      transformOrigin: 'top left', transform: [{ scale: magnification }],
+    }}>
+      {image && <Group transform={[{ scale: drawingScale }]}>
+        <Oval x={rig.feet[0] - crop.x - rig.shadowWidth / 2} y={rig.feet[1] - crop.y - 5}
+          width={rig.shadowWidth} height={11} color="rgba(64, 42, 26, 0.22)">
+          <BlurMask blur={3} style="normal" />
+        </Oval>
+        <Rect x={0} y={0} width={crop.width} height={crop.height}>
+          <Shader source={characterShader} uniforms={uniforms}>
+            <ImageShader image={image} />
+          </Shader>
+        </Rect>
+      </Group>}
+    </Canvas>
+  );
+}
+
+export function SceneArtwork({ friend, pose, attentive, paused }: SceneProps) {
+  const [{ width, height }, setSize] = useState({ width: 0, height: 0 });
+  const motionEnabled = useMotionEnabled();
+  const companion = friends[friend];
+  const scale = Math.min(height / 768, width / crop.width);
+  // 배경이 화면에 맞게 잘려도 발과 그림자는 원래 바닥 위치에 고정한다.
+  const roomScale = Math.max(width / 512, height / 768);
+  const [feetX, feetY] = rigs[friend].feet;
+  const groundX = width / 2 + (feetX - 256) * roomScale;
+  const groundY = height / 2 + (feetY - 384) * roomScale;
+  const left = groundX - (feetX - crop.x) * scale;
+  const top = groundY - (feetY - crop.y) * scale;
+
+  return (
+    <View accessible accessibilityRole="image" accessibilityLabel={companion.home + '의 ' + companion.name}
       pointerEvents="none" style={[StyleSheet.absoluteFill, { overflow: 'hidden' }]}
       onLayout={({ nativeEvent }) => setSize(nativeEvent.layout)}>
-      {height > 0 && <Image source={friends[friend].scene} contentFit="fill" style={{
-        position: 'absolute', width: frameWidth * 2, height: height * 2,
-        left: (width - frameWidth) / 2 - column * frameWidth, top: -row * height,
-      }} />}
+      <Image source={companion.room} contentFit="cover" style={StyleSheet.absoluteFill} />
+      {scale > 0 && <Character key={friend} friend={friend} pose={pose} attentive={attentive}
+        moving={motionEnabled && !paused} scale={scale} left={left} top={top} />}
     </View>
   );
 }
