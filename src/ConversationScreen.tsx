@@ -121,7 +121,17 @@ export function ConversationScreen() {
   return (
     <SafeAreaView style={styles.page} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
-        <Text accessibilityRole="header" accessibilityLabel="말똑무" style={styles.logo}>말<Text style={styles.logoAccent}>똑</Text>무</Text>
+        <View style={styles.brand}>
+          <Image
+            source={require('../assets/brand-grandparents.webp')}
+            style={styles.brandMark}
+            contentFit="cover"
+            accessible={false}
+          />
+          <Text accessibilityRole="header" accessibilityLabel="말똑무" style={styles.logo}>
+            말<Text style={styles.logoAccent}>똑</Text>무
+          </Text>
+        </View>
         <Pressable accessibilityRole="button" accessibilityLabel={companion.name + ', 말동무 선택'} onPress={() => openPanel('friends')}
           style={({ pressed }) => [styles.friendPicker, pressed && styles.pressed]}>
           <Image source={companion.portrait} style={styles.smallPortrait} contentFit="contain" />
