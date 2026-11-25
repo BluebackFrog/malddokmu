@@ -6,7 +6,8 @@ import {
   cancelAnimation, ReduceMotion, useDerivedValue, useFrameCallback, useSharedValue, withTiming, type FrameInfo,
 } from 'react-native-reanimated';
 
-import { characterShader, crop, frame, rigs } from './characterMotion';
+import { characterUniforms, crop, rigs } from './characterMotion';
+import { characterShader } from './characterShader';
 import { friends, type FriendId, type Pose } from './conversation';
 
 type SceneProps = { friend: FriendId; pose: Pose; attentive: boolean; paused: boolean };
@@ -59,34 +60,9 @@ function Character({ friend, pose, attentive, moving, scale, left, top }: Charac
     return () => cancelAnimation(attention);
   }, [attention, attentive, moving]);
 
-  const uniforms = useDerivedValue(() => {
-    const elapsedMs = tick.get() * 1000 / 24;
-    const t = 2 * Math.PI * (elapsedMs % rig.cycleMs) / rig.cycleMs;
-    const focus = attention.value;
-    const breath = Math.sin(3 * t);
-    const glance = 0.7 * Math.sin(2 * t) + 0.3 * Math.sin(5 * t);
-    const tailSwing = rig.tail ? Math.sin(rig.tail.beats * t) * (0.78 + 0.22 * Math.cos(t) + 0.4 * focus) : 0;
-    const hand = pose === 'apple' ? rig.appleHand : rig.waveHand;
-    let handX = 0;
-    let handY = 0;
-    if (pose === 'wave') {
-      // 인사할 때는 손을 몇 번 흔든 뒤 잠깐 쉰다.
-      handX = 8 * Math.sin(12 * t) * Math.max(0, Math.cos(2 * t));
-      handY = 2 * Math.sin(4 * t);
-    } else if (pose === 'apple') {
-      handX = 2 * Math.sin(2 * t);
-      handY = -4 * breath;
-    }
-    return {
-      tile: frame[pose], origin: [crop.x, crop.y], feet: rig.feet, neck: rig.neck,
-      headRadius: rig.headRadius, lean: rig.sway * glance,
-      rise: rig.breath * breath, angle: rig.tilt * (glance + 0.65 * focus),
-      nod: rig.nod * Math.sin(4 * t) + 2 * focus,
-      tailTip: rig.tail?.tip ?? [0, 0],
-      tailMove: [(rig.tail?.swing[0] ?? 0) * tailSwing, (rig.tail?.swing[1] ?? 0) * tailSwing],
-      hand, handMove: [handX, handY],
-    };
-  });
+  const uniforms = useDerivedValue(() =>
+    characterUniforms(friend, pose, tick.get(), attention.value)
+  );
 
   // 원화 해상도로 그린 뒤 확대해 고밀도 화면에서도 매 프레임 같은 픽셀을 여러 번 계산하지 않는다.
   const magnification = Math.max(1, scale * PixelRatio.get());

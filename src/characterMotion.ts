@@ -1,80 +1,84 @@
-import { Skia } from '@shopify/react-native-skia';
-
 import type { FriendId, Pose } from './conversation';
 
-// 원본 한 장(512×768)에서 모두 같은 사각형을 잘라 네 자세를 2×2로 담았다.
 export const crop = { x: 80, y: 144, width: 368, height: 416 };
-export const frame: Record<Pose, [number, number]> = {
-  listen: [0, 0], wave: [crop.width, 0],
-  apple: [0, crop.height], relax: [crop.width, crop.height],
-};
-
+const poseRow: Record<Pose, number> = { listen: 0, wave: 1, apple: 2, relax: 3 };
 type Point = [number, number];
+// 인사·사과 자세에서 어깨 앞부분은 고정하고 팔꿈치를 축으로 손을 움직인다.
+type ArmJoints = [shoulderX: number, shoulderY: number, elbowX: number, elbowY: number];
 type Rig = {
-  cycleMs: number;
-  feet: Point;
-  shadowWidth: number;
-  neck: Point;
-  headRadius: number;
-  tilt: number;
-  nod: number;
-  sway: number;
-  breath: number;
-  waveHand: Point;
-  appleHand: Point;
-  tail?: { tip: Point; swing: Point; beats: number };
+  cycleMs: number; feet: Point; shadowWidth: number;
+  headCenters: Record<Pose, Point>; headSize: Point;
+  tilt: number; nod: number; sway: number; breath: number;
+  arms: { wave: ArmJoints; apple: ArmJoints };
+  tail?: { root: Point; angle: number; beats: number };
 };
 
 export const rigs: Record<FriendId, Rig> = {
   hodam: {
-    cycleMs: 14300, feet: [253, 509], shadowWidth: 158, neck: [264, 350], headRadius: 110,
-    tilt: 0.046, nod: 1.7, sway: 2.5, breath: 3.8, waveHand: [345, 349], appleHand: [360, 342],
-    tail: { tip: [149, 349], swing: [10, 4], beats: 5 },
+    cycleMs: 14300, feet: [253, 509], shadowWidth: 158,
+    headCenters: { listen: [191, 151], wave: [168, 150], apple: [192, 150], relax: [185, 151] },
+    headSize: [80, 66], tilt: 0.038, nod: 1.6, sway: 2.5, breath: 3.8,
+    arms: { wave: [216, 222, 238, 247], apple: [231, 226, 256, 248] },
+    tail: { root: [89, 313], angle: 0.095, beats: 5 },
   },
   boksil: {
-    cycleMs: 11200, feet: [275, 525], shadowWidth: 190, neck: [264, 346], headRadius: 114,
-    tilt: -0.078, nod: 2.8, sway: 3, breath: 2.6, waveHand: [370, 328], appleHand: [381, 311],
-    tail: { tip: [175, 392], swing: [12, -7], beats: 11 },
+    cycleMs: 11200, feet: [275, 525], shadowWidth: 190,
+    headCenters: { listen: [191, 140], wave: [185, 141], apple: [192, 134], relax: [194, 139] },
+    headSize: [78, 77], tilt: -0.055, nod: 2.4, sway: 3, breath: 2.6,
+    arms: { wave: [257, 229, 274, 236], apple: [260, 230, 281, 238] },
+    tail: { root: [112, 321], angle: 0.145, beats: 11 },
   },
   dodam: {
-    cycleMs: 13500, feet: [270, 495], shadowWidth: 250, neck: [245, 328], headRadius: 97,
-    tilt: -0.034, nod: 5.5, sway: 1.8, breath: 2.5, waveHand: [354, 295], appleHand: [394, 322],
+    cycleMs: 13500, feet: [270, 495], shadowWidth: 250,
+    headCenters: { listen: [172, 138], wave: [155, 133], apple: [161, 136], relax: [164, 135] },
+    headSize: [84, 71], tilt: -0.032, nod: 3.7, sway: 1.8, breath: 2.5,
+    arms: { wave: [249, 178, 269, 235], apple: [256, 178, 279, 244] },
   },
   boksoon: {
-    cycleMs: 14800, feet: [257, 538], shadowWidth: 143, neck: [252, 290], headRadius: 78,
-    tilt: 0.039, nod: 3.4, sway: 3.6, breath: 3.3, waveHand: [184, 293], appleHand: [363, 288],
+    cycleMs: 14800, feet: [257, 538], shadowWidth: 143,
+    headCenters: { listen: [179, 104], wave: [172, 103], apple: [179, 104], relax: [172, 104] },
+    headSize: [64, 54], tilt: 0.038, nod: 2.8, sway: 3.6, breath: 3.3,
+    arms: { wave: [139, 155, 117, 196], apple: [241, 157, 258, 198] },
   },
   deoksu: {
-    cycleMs: 16800, feet: [274, 520], shadowWidth: 161, neck: [277, 290], headRadius: 80,
-    tilt: -0.065, nod: 3.3, sway: -3.2, breath: 2.3, waveHand: [358, 293], appleHand: [369, 273],
+    cycleMs: 16800, feet: [274, 520], shadowWidth: 161,
+    headCenters: { listen: [201, 100], wave: [195, 101], apple: [201, 99], relax: [201, 99] },
+    headSize: [66, 59], tilt: -0.05, nod: 2.9, sway: -3.2, breath: 2.3,
+    arms: { wave: [234, 155, 257, 201], apple: [239, 155, 260, 200] },
   },
 };
 
-// 발에서 목으로 갈수록 움직임을 키우고, 꼬리 끝과 손 주변만 부드럽게 따라오게 한다.
-const source = Skia.RuntimeEffect.Make(`
-  uniform shader poses;
-  uniform float2 tile, origin, feet, neck;
-  uniform float headRadius, lean, rise, angle, nod;
-  uniform float2 tailTip, tailMove, hand, handMove;
-
-  float influence(float2 delta, float2 radius) {
-    return 1.0 - smoothstep(0.30, 1.0, length(delta / radius));
+export function characterUniforms(friend: FriendId, pose: Pose, tick: number, focus: number) {
+  'worklet';
+  const rig = rigs[friend];
+  const elapsedMs = tick * 1000 / 24;
+  const t = 2 * Math.PI * (elapsedMs % rig.cycleMs) / rig.cycleMs;
+  const breath = Math.sin(3 * t);
+  const glance = 0.7 * Math.sin(2 * t) + 0.3 * Math.sin(5 * t);
+  const gesturing = pose === 'wave' || pose === 'apple';
+  let armAngle = 0;
+  let reach = 0;
+  if (pose === 'wave') {
+    // 귀 옆의 손은 얼굴 바깥쪽으로 흔들었다가 제자리로 돌아온다.
+    const outward = Math.sign(rig.arms.wave[2] - rig.headCenters.wave[0]);
+    const wave = 0.5 * (1 - Math.cos(12 * t)) * Math.max(0, Math.cos(2 * t));
+    armAngle = outward * 0.17 * wave;
+  } else if (pose === 'apple') {
+    armAngle = 0.036 * breath;
+    reach = 0.017 * Math.sin(2 * t);
   }
-
-  half4 main(float2 local) {
-    float2 p = local + origin;
-    float upper = smoothstep(0.0, 1.0, (feet.y - p.y) / (feet.y - neck.y));
-    p.x -= lean * upper;
-    p.y += rise * upper;
-
-    float2 relative = p - neck;
-    float head = (1.0 - smoothstep(-10.0, 35.0, relative.y))
-               * (1.0 - smoothstep(headRadius - 18.0, headRadius + 12.0, abs(relative.x)));
-    p -= head * (float2(-relative.y, relative.x) * angle + float2(0.0, nod));
-    p -= tailMove * influence(p - tailTip, float2(43.0, 83.0));
-    p -= handMove * influence(p - hand, float2(49.0, 67.0));
-    return poses.eval(tile + p - origin);
-  }
-`);
-if (!source) throw new Error('캐릭터 움직임을 준비할 수 없습니다.');
-export const characterShader = source;
+  const tail = rig.tail;
+  return {
+    tileSize: [crop.width, crop.height], row: poseRow[pose],
+    foot: [rig.feet[0] - crop.x, rig.feet[1] - crop.y],
+    face: rig.headCenters[pose], faceSize: rig.headSize,
+    lean: rig.sway * glance, rise: rig.breath * breath,
+    tilt: rig.tilt * (glance + 0.65 * focus), nod: rig.nod * Math.sin(4 * t) + 1.5 * focus,
+    yaw: 0.095 * glance + 0.028 * focus,
+    hasArm: Number(gesturing), joints: pose === 'apple' ? rig.arms.apple : rig.arms.wave,
+    armAngle, reach,
+    hasSupport: Number(pose === 'apple' || (friend === 'dodam' && pose === 'listen')),
+    hasTail: Number(Boolean(tail)), tailRoot: tail?.root ?? [0, 0],
+    tailAngle: tail ? tail.angle * Math.sin(tail.beats * t) * (0.78 + 0.22 * Math.cos(t) + 0.4 * focus) : 0,
+  };
+}
