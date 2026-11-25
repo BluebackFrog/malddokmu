@@ -1,6 +1,8 @@
 # 말똑무
 
-말똑무는 어르신과 이야기를 나누는 AI 말동무를 목표로 만드는 Android·iOS 앱입니다. 현재 첫 화면에 호담이의 인사말이 표시됩니다. 첫 화면은 `App.tsx`에서 수정합니다.
+말똑무는 어르신과 이야기를 나누는 AI 말동무를 목표로 만드는 Android·iOS 앱입니다. 현재는 기기에 담긴 예시 대화로 동작합니다. 위쪽에서 말동무를 바꾸고, 아래쪽에서 주제를 고르거나 글자를 보낼 수 있습니다. 마이크를 한 번 누르면 연습 문구가 나타나고, 다시 누르면 예시 답변이 나옵니다.
+
+화면과 버튼은 `src/ConversationScreen.tsx`, 색상과 배치는 `src/styles.ts`, 말동무별 대사와 끝말잇기 단어는 `src/conversation.ts`에서 수정합니다.
 
 Mac에서 새 터미널을 열고 다음 명령을 실행합니다.
 
@@ -33,7 +35,7 @@ Windows에서는 Android Studio로 안드로이드 에뮬레이터를 만들거�
 작업을 시작할 때는 저장소 폴더에서 `git pull --ff-only`로 최신 변경을 받습니다. 한 가지 변경을 완성하고 확인하면 `git status`와 `git diff`로 내용을 살펴보고, 수정한 파일을 골라 커밋한 뒤 푸시합니다. 아래는 첫 화면 문구를 실제로 수정했을 때의 예시입니다.
 
 ```sh
-git add App.tsx
-git commit -m "호담이의 첫 인사 문구 수정"
+git add src/conversation.ts
+git commit -m "Update the opening greeting for Hodam"
 git push
 ```
